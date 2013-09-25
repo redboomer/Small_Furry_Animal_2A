@@ -78,7 +78,7 @@ enum TASKSTATUS
 enum COMMANDS
 {
   RECIPE_END = 0,
-  MOV,
+  MOV = 32,
   WAIT,
   TBD1,
   LOOPSTART,
@@ -207,65 +207,91 @@ void InitializeTimer(void)
 void processCommand (struct TaskControlBlock* servo, enum COMMANDS command, UINT8 commandContext)
 { 
   UINT16 positionChange = 0;
-  const UINT16 msPerPosition = 200;
+  const UINT16 PerPositionIncrementms = 200;
+  const UINT16 waitTimeIncrementms = 100;
   
   switch(command) 
   {
-    case MOV:
-     // Check to make sure the command is valid.
-     // The positions are 0-5
-     if(commandContext < 6) 
-     {
-        servo->currentCommand = command;
-        // if the servo position in the command is different to the
-        // the current position proces it.
-        if(servo->currentServoPosition != commandContext) 
+     case MOV:
+         printf("\r\n processCommand: MOV\r\n");
+        // Check to make sure the command is valid.
+        // The positions are 0-5
+        if(commandContext < 6) 
         {
-           // update the expected servo position
-           servo->expectedServoPosition = commandContext;
+            // Store the current command.
+            servo->currentCommand = command;
+           
+           // if the servo position in the command is different to the
+           // the current position proces it.
+           if(servo->currentServoPosition != commandContext) 
+           {
+              // update the expected servo position
+              servo->expectedServoPosition = commandContext;
         
-          // Calculate out the amount of time it will take the command
-          // to run and update the Task Control Block
-          if(servo->expectedServoPosition < servo->currentServoPosition) 
-          {
-              positionChange = servo->currentServoPosition - servo->expectedServoPosition; 
-          } 
-          else 
-          {
-              positionChange = servo->expectedServoPosition - servo->currentServoPosition;
-          }
+              // Calculate out the amount of time it will take the command
+              // to run.
+              if(servo->expectedServoPosition < servo->currentServoPosition) 
+              {
+                 positionChange = servo->currentServoPosition - servo->expectedServoPosition; 
+              } 
+              else 
+              {
+                 positionChange = servo->expectedServoPosition - servo->currentServoPosition;
+              }
           
-          servo->timeLeftms = positionChange * msPerPosition;
-          //printf("\r\nprocessCommand: setting processCommand %d\r\n", servo->timeLeftms);
+              servo->timeLeftms = positionChange * PerPositionIncrementms;
+              //printf("\r\nprocessCommand: setting processCommand %d\r\n", servo->timeLeftms);
           
-          // Send the commands down the PWM channel.
-          // figure out which channel to send it down on.
-          if(servo == &servoA) 
-          {
+              // Send the commands down the PWM channel.
+              // figure out which channel to send it down on.
+              if(servo == &servoA) 
+              {
           
-              //printf("\r\nprocessCommand: setting servoA\r\n");
-              PWMDTY0 = servoPositionTicks[servo->expectedServoPosition];
-              PWME = PWME |0x01; 
-          } 
-          else if(servo == &servoB)
-          {
-              //printf("\r\nprocessCommand: setting servoB\r\n");
-              PWMDTY1 = servoPositionTicks[servo->expectedServoPosition];
-              PWME = PWME |0x02;
-          } 
-          else {
-            printf("\r\nprocessCommand: undefined servo\r\n");
-          }
+                 //printf("\r\nprocessCommand: setting servoA\r\n");
+                 PWMDTY0 = servoPositionTicks[servo->expectedServoPosition];
+                 PWME = PWME |0x01; 
+              } 
+              else if(servo == &servoB)
+              {
+                 //printf("\r\nprocessCommand: setting servoB\r\n");
+                 PWMDTY1 = servoPositionTicks[servo->expectedServoPosition];
+                 PWME = PWME |0x02;
+              } 
+              else {
+                 printf("\r\nprocessCommand: undefined servo\r\n");
+              }
           
-          // Update the Task Control Block Status.
-          servo->status = running;
-          //printf("\r\n processCommand: servostatus = running\r\n");
-        } 
-     }
+              // Update the Task Control Block Status.
+              servo->status = running;
+              //printf("\r\n processCommand: servostatus = running\r\n");
+           } 
+        }
     
-    break;
-    
-    default:
+        break;
+     case WAIT:
+        // The wait lengths are 0-31
+        
+        printf("\r\n processCommand: WAIT\r\n");;
+        if(commandContext < 32) 
+        {
+            // Store the current command.
+            servo->currentCommand = command;
+            
+            // Calculate out the amount of time it will take the command
+            // to run.
+            
+            // Calculate out the amount of time it will take the command
+            // to run.
+            // the reason it's commandContext + 1 is because wait 0 = 100ms
+            servo->timeLeftms = (commandContext + 1) * waitTimeIncrementms;
+                   
+            // Update the Task Control Block Status.
+            servo->status = running;    
+        }
+        
+        break;
+     
+     default:
       printf("\r\nprocessCommand: undefined command\r\n");
   } 
 }
@@ -275,14 +301,14 @@ void runTasks(void)
    if(servoA.status  == ready) 
    {
      // get the next command and process it.
-     processCommand(&servoA, MOV, 0);
+     processCommand(&servoA, WAIT, 0);
    } else {
       updateTaskStatus(&servoA);
    }
    
    if(servoB.status  == ready) 
    {
-     processCommand(&servoB, MOV, 5);
+     processCommand(&servoB, WAIT, 31);
    } else {
      updateTaskStatus(&servoB);
    }
@@ -302,6 +328,7 @@ void updateTaskStatus(struct TaskControlBlock* servo)
         
         if(servo->timeLeftms == 0) 
         {
+          servo->currentServoPosition = servo->expectedServoPosition;
           servo->status = ready;
           
           printf("\r\n updateTaskStatus: servostatus = ready\r\n");
