@@ -107,7 +107,7 @@ struct TaskControlBlock servoB;
 UINT8 updateTime = FALSE;
 
 
-// Function definition
+// Function definitions
 void initializeServos(void);
 void processCommand(struct TaskControlBlock* servo, enum COMMANDS command, UINT8 commandContext);
 void runTasks(void);
@@ -212,6 +212,32 @@ void processCommand (struct TaskControlBlock* servo, enum COMMANDS command, UINT
   
   switch(command) 
   {
+     case RECIPE_END:
+          printf("\r\n processCommand: RECIPE_END\r\n");
+          // Turn off the servos
+           if(servo == &servoA) 
+              {
+                 // if both servos are on only turn off servo A
+                 if (PWME == 0x03) 
+                 {
+                    PWME = 0x02;
+                 } 
+                 else {
+                    PWME = 0x00;
+                 }
+              } 
+              else if(servo == &servoB)
+              {
+                 // if both servos are on only turn off servo B
+                 if (PWME == 0x03) 
+                 {
+                    PWME = 0x01;
+                 } 
+                 else {
+                    PWME = 0x00;
+                 }
+              } 
+          break;
      case MOV:
          printf("\r\n processCommand: MOV\r\n");
         // Check to make sure the command is valid.
@@ -301,14 +327,16 @@ void runTasks(void)
    if(servoA.status  == ready) 
    {
      // get the next command and process it.
-     processCommand(&servoA, WAIT, 0);
+     
+     
+     processCommand(&servoA, MOV, 5);
    } else {
       updateTaskStatus(&servoA);
    }
    
    if(servoB.status  == ready) 
    {
-     processCommand(&servoB, WAIT, 31);
+     processCommand(&servoB, MOV, 5);
    } else {
      updateTaskStatus(&servoB);
    }
@@ -415,6 +443,7 @@ void main(void)
   InitializeSerialPort();
   InitializeTimer();
   initializeServos(); 
+  
    
 // Show initial prompt
   (void)printf("Hey Babe I'm just too cool!\r\n");
