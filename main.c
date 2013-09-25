@@ -107,7 +107,7 @@ struct TaskControlBlock servoB;
 UINT8 updateTime = FALSE;
 
 
-// Function definitions
+// Function definition
 void initializeServos(void);
 void processCommand(struct TaskControlBlock* servo, enum COMMANDS command, UINT8 commandContext);
 void runTasks(void);
