@@ -226,6 +226,9 @@ void initializeServos(void)
                                       // go to position 0 it will go there. 
   servoB.expectedServoPosition = 255;
   servoB.timeLeftms = 0;
+  
+  //Initialize the status LED port.
+  DDRA = 0xFF;
 }
 
 // Initializes I/O and timer settings for the demo.
@@ -288,6 +291,9 @@ void processCommand (struct TaskControlBlock* servo, enum COMMANDS command, UINT
                  else {
                     PWME = 0x00;
                  }
+                 
+                 // Set the status LED for this commands.
+                 PORTA = PORTA | 0x20;
               } 
               else if(servo == &servoB)
               {
@@ -299,6 +305,9 @@ void processCommand (struct TaskControlBlock* servo, enum COMMANDS command, UINT
                  else {
                     PWME = 0x00;
                  }
+                 
+                 // Set the status LED for this commands.
+                 PORTA = PORTA | 0x02;
               } 
           break;
      case MOV:
@@ -408,13 +417,24 @@ void processCommand (struct TaskControlBlock* servo, enum COMMANDS command, UINT
         break;
      
      default:
-      printf("\r\nprocessCommand: undefined command\r\n");
+        if(servo == &servoA)
+        {
+           printf("\r\nprocessCommand: undefined command for servoA\r\n");
+           PORTA = PORTA | 0x80;        // Reciepy command error.
+        } else if(servo == &servoB){
+           printf("\r\nprocessCommand: undefined command for servoB\r\n");
+        PORTA = PORTA | 0x08;        // Reciepy command error.
+      
+        } 
+        else 
+        {
+           printf("\r\nprocessCommand: Unknown error occured.\r\n");
+        }
   } 
 }
 
 void runTasks(void) 
 { 
-   /*
    if(servoA.status  == ready) 
    {
      // get the next command and process it.
@@ -422,7 +442,6 @@ void runTasks(void)
    } else {
      updateTaskStatus(&servoA);
    }
-     */
 
    if(servoB.status  == ready) 
    {
