@@ -74,8 +74,8 @@ UINT8 bufferServoA[100] = {0};  // Commands buffer for ServoA
 UINT8 bufferServoB[100] = {0};  // Commands buffer for ServoB
 
 // 
-UINT8 *commandsServoA = &bufferServoA;  // Pointer for commands buffer for servoA
-UINT8 *commandsServoB = &bufferServoB;  // Pointer for commands buffer for servoB
+//UINT8 *commandsServoA = &bufferServoA;  // Pointer for commands buffer for servoA
+//UINT8 *commandsServoB = &bufferServoB;  // Pointer for commands buffer for servoB
 
 // Possible Task Statuses.
 enum TASKSTATUS
@@ -104,7 +104,7 @@ enum COMMANDS
 struct TaskControlBlock 
 {
    enum TASKSTATUS status;
-   enum COMMANDS currentCommand;
+   UINT8 * currentCommand;
    
    // Loop bookkeeping stuff.
    UINT8 loopFlag;
@@ -145,28 +145,28 @@ void initializeCommands(void)
     enum COMMANDS myCommand;
 
     myCommand = MOV; 
-    *commandsServoA = myCommand; // MOV 0
-    commandsServoA++;
-    *commandsServoA = myCommand+5;
-    commandsServoA++;
-    *commandsServoA = myCommand;
-    commandsServoA++;
-    *commandsServoA = RECIPE_END;
+    *(servoA.currentCommand) = myCommand; // MOV 0
+    servoA.currentCommand++;
+    *(servoA.currentCommand) = myCommand+5;
+    servoA.currentCommand++;
+    *(servoA.currentCommand) = myCommand;
+    servoA.currentCommand++;
+    *(servoA.currentCommand) = RECIPE_END;
   
     
     // set the pointer back to the beginning of the buffer.
-    commandsServoA = &bufferServoA;  
+    servoA.currentCommand = &bufferServoA;  
 
-    *commandsServoB = myCommand+3;
-    commandsServoB++;
-    *commandsServoB = myCommand+2;
-    commandsServoB++;
-    *commandsServoB = myCommand+5;
-    commandsServoB++;
-    *commandsServoB = RECIPE_END;
+    *(servoB.currentCommand) = myCommand+3;
+    servoB.currentCommand++;
+    *(servoB.currentCommand) = myCommand+2;
+    servoB.currentCommand++;
+    *(servoB.currentCommand) = myCommand+5;
+    servoB.currentCommand++;
+    *(servoB.currentCommand) = RECIPE_END;
 
     // set the pointer back to the beginning of the buffer.
-    commandsServoB = &bufferServoB; 
+    servoB.currentCommand = &bufferServoB; 
 }
 
 
@@ -210,6 +210,7 @@ void initializeServos(void)
                  
   // Initialize the Task Control Blocks.
   servoA.status  = ready;
+  servoA.currentCommand = &bufferServoA; 
   servoA.loopFlag = FALSE;
   servoA.loopCounter = 0;
   servoA.firstLoopInstruction = 0;
@@ -219,6 +220,7 @@ void initializeServos(void)
   servoA.timeLeftms = 0;
   
   servoB.status  = ready;
+  servoB.currentCommand = &bufferServoB;
   servoB.loopFlag = FALSE;
   servoB.loopCounter = 0;
   servoB.firstLoopInstruction = 0;
@@ -317,9 +319,6 @@ void processCommand (struct TaskControlBlock* servo, enum COMMANDS command, UINT
         // The positions are 0-5
         if(commandContext < 6) 
         {
-            // Store the current command.
-            servo->currentCommand = command;
-           
            // if the servo position in the command is different to the
            // the current position proces it.
            if(servo->currentServoPosition != commandContext) 
@@ -355,18 +354,12 @@ void processCommand (struct TaskControlBlock* servo, enum COMMANDS command, UINT
                  //printf("\r\nprocessCommand: setting servoA\r\n");
                  PWMDTY0 = servoPositionTicks[servo->expectedServoPosition];
                  PWME = PWME |0x01; 
-                 
-                 // increment the command buffer;
-                 commandsServoA++;
               } 
               else if(servo == &servoB)
               {
                  //printf("\r\nprocessCommand: setting servoB\r\n");
                  PWMDTY1 = servoPositionTicks[servo->expectedServoPosition];
                  PWME = PWME |0x02;
-                 
-                  // increment the command buffer;
-                 commandsServoB++;
               } 
               else {
                  printf("\r\nprocessCommand: undefined servo\r\n");
@@ -374,6 +367,7 @@ void processCommand (struct TaskControlBlock* servo, enum COMMANDS command, UINT
           
               // Update the Task Control Block Status.
               servo->status = running;
+              servo->currentCommand++;
               //printf("\r\n processCommand: servostatus = running\r\n");
            } 
         }
@@ -384,23 +378,15 @@ void processCommand (struct TaskControlBlock* servo, enum COMMANDS command, UINT
         
         printf("\r\n processCommand: WAIT %d\r\n", commandContext);
         if(commandContext < 32) 
-        {
-            // Store the current command.
-            servo->currentCommand = command;  
-            
+        {   
             // Calculate out the amount of time it will take the command
             // to run.
             servo->timeLeftms = (commandContext) * waitTimeIncrementms;
             
-            if(servo == &servoA) 
+            if(servo == &servoA || servo == &servoB) 
             {    
               // increment the command buffer;
-              commandsServoA++;
-            } 
-            else if(servo == &servoB)
-            { 
-              // increment the command buffer;
-              commandsServoB++;
+              servo->currentCommand++;
             } 
             else 
             {
@@ -414,11 +400,8 @@ void processCommand (struct TaskControlBlock* servo, enum COMMANDS command, UINT
         break;
         
      case LOOP_START:
-        printf("\r\n processCommand: LOOPSTART\r\n");
-         
-        // Store the current command.
-        servo->currentCommand = command; 
-         
+        printf("\r\n processCommand: LOOPSTART %d\r\n", commandContext);
+                  
         // if we do not have a nested loop set things up for
         // a loop.
         if(servo->loopFlag == FALSE) 
@@ -431,20 +414,10 @@ void processCommand (struct TaskControlBlock* servo, enum COMMANDS command, UINT
            // Set a pointer to the instruction after the
            // LOOPSTART command and move onto the next
            // instruction.
-           if(servo == &servoA)
-           {
-              servo->firstLoopInstruction = commandsServoA + 1;
-              
-              // increment the command buffer;
-              commandsServoA++;
-           } 
-           else if(servo == &servoB)
-           {
-              servo->firstLoopInstruction = commandsServoB + 1;
-              
-              // increment the command buffer;
-              commandsServoB++;
-           }
+           servo->firstLoopInstruction = servo->currentCommand + 1;
+           
+           // Increment the instruction pointer.
+           servo->currentCommand++;
            
            // Rajeev we need LED status lights here.  
          } 
@@ -463,18 +436,13 @@ void processCommand (struct TaskControlBlock* servo, enum COMMANDS command, UINT
          
      case END_LOOP:
         printf("\r\n processCommand: END_LOOP\r\n");
-        if(servo->loopCounter > 0) {  
-           if(servo == &servoA)
-           {
-              commandsServoA = servo->firstLoopInstruction;
-           } 
-           else if(servo == &servoB)
-           {
-              commandsServoB = servo->firstLoopInstruction;
-           }
+        
+        if(servo->loopCounter > 0) 
+        {  
+           servo->currentCommand = servo->firstLoopInstruction;
            
-              // deincrement the loop counter.
-              --(servo->loopCounter);
+           // deincrement the loop counter.
+           --(servo->loopCounter);
         } 
         else 
         {
@@ -483,18 +451,14 @@ void processCommand (struct TaskControlBlock* servo, enum COMMANDS command, UINT
            servo->loopFlag = FALSE;
            servo->firstLoopInstruction = 0;
            
-           if(servo == &servoA) 
+           if(servo == &servoA || servo == &servoB) 
            {    
-              // increment the command buffer;
-              commandsServoA++;
+             // increment the command buffer;
+             servo->currentCommand++;
            } 
-           else if(servo == &servoB)
-           { 
-              // increment the command buffer;
-              commandsServoB++;
-           } 
-           else {
-              printf("\r\nprocessCommand: undefined servo\r\n");
+           else 
+           {
+             printf("\r\nprocessCommand: undefined servo\r\n");
            }
         }
           
@@ -522,19 +486,18 @@ void runTasks(void)
    if(servoA.status  == ready) 
    {
      // get the next command and process it.
-     processCommand(&servoA,firstThree(*commandsServoA), lastFive(*commandsServoA));
+     processCommand(&servoA,firstThree(*servoA.currentCommand), lastFive(*servoA.currentCommand));
    } else {
      updateTaskStatus(&servoA);
    }
-    
-     /*
+
    if(servoB.status  == ready) 
    {
-     processCommand(&servoB, firstThree(*commandsServoB), lastFive(*commandsServoB));
+     processCommand(&servoB, firstThree(*servoB.currentCommand), lastFive(*servoB.currentCommand));
    } else {
      updateTaskStatus(&servoB);
    }
-        */
+
    // reset the 10ms interrupt flag.
    updateTime = FALSE;
    
