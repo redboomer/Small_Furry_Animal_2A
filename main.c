@@ -52,6 +52,10 @@
 #define TRUE 1
 #define FALSE 0
 
+// These are used to hold the user input.
+UINT8 servo1UserInput = 0;
+UINT8 servo2UserInput = 0;
+
 // These are used to extract the command and
 // any parameters attached to those commands.
 #define firstThree(x) ((x>>5)<<5)
@@ -73,17 +77,13 @@ const UINT8 servoPositionTicks[6] = {0x05, 0X09, 0X0C, 0X0F, 0X14, 0X18};
 UINT8 bufferServoA[100] = {0};  // Commands buffer for ServoA
 UINT8 bufferServoB[100] = {0};  // Commands buffer for ServoB
 
-// 
-//UINT8 *commandsServoA = &bufferServoA;  // Pointer for commands buffer for servoA
-//UINT8 *commandsServoB = &bufferServoB;  // Pointer for commands buffer for servoB
-
 // Possible Task Statuses.
 enum TASKSTATUS
 {
   ready = 0,
   running,
-  blocked,
-  suspended
+  error,
+  paused,
 };
 
 // the order of these commands match the op codes 
@@ -123,16 +123,12 @@ struct TaskControlBlock
 struct TaskControlBlock servoA;
 struct TaskControlBlock servoB;
 
-// This is used to tell the updateTaskStatus function
-// to deincrement the time by 100ms.  It is set by the
-// interrupt function.
-UINT8 updateTime = FALSE;
-
-
 // Function definitions
 void initializeServos(void);
 void initializeCommands(void);
 void processCommand(struct TaskControlBlock* servo, enum COMMANDS command, UINT8 commandContext);
+void processUserCommand(void);
+void initializeCommands(void);
 void runTasks(void);
 void updateTaskStatus(struct TaskControlBlock* servo);
 
@@ -209,7 +205,7 @@ void initializeServos(void)
                  // provide a baseline.
                  
   // Initialize the Task Control Blocks.
-  servoA.status  = ready;
+  servoA.status  = paused;
   servoA.currentCommand = &bufferServoA; 
   servoA.loopFlag = FALSE;
   servoA.loopCounter = 0;
@@ -219,7 +215,7 @@ void initializeServos(void)
   servoA.expectedServoPosition = 255;
   servoA.timeLeftms = 0;
   
-  servoB.status  = ready;
+  servoB.status = paused;
   servoB.currentCommand = &bufferServoB;
   servoB.loopFlag = FALSE;
   servoB.loopCounter = 0;
@@ -427,7 +423,7 @@ void processCommand (struct TaskControlBlock* servo, enum COMMANDS command, UINT
             printf("\r\nprocessCommand: Nested Loop Error.\r\n");
             
             // place the task in an error state.  In this case suspended.
-            servo->status = suspended;
+            servo->status = error;
             
             // Rajeev we need LED status lights here.
          }
@@ -472,7 +468,6 @@ void processCommand (struct TaskControlBlock* servo, enum COMMANDS command, UINT
         } else if(servo == &servoB){
            printf("\r\nprocessCommand: undefined command for servoB\r\n");
            PORTA = PORTA | 0x08;        // Reciepy command error.
-      
         } 
         else 
         {
@@ -481,26 +476,56 @@ void processCommand (struct TaskControlBlock* servo, enum COMMANDS command, UINT
   } 
 }
 
+//-------------------------------------------------------------- 
+void processUserCommand(void) 
+{
+   // process command
+   
+   // process the continue command.
+   if((servo1UserInput == 0x63 || servo1UserInput == 0x43) &&
+       servoA.status != error && (firstThree(*servoA.currentCommand)) != RECIPE_END) 
+   {
+      servoA.status  = running;
+      printf("\r\n processUserCommand: servoA.status = running\r\n");
+   }
+   
+   if((servo2UserInput == 0x63 || servo2UserInput == 0x43) && 
+      servoB.status != error && (firstThree(*servoB.currentCommand)) != RECIPE_END) 
+   {
+      servoB.status  = running;
+      printf("\r\n processUserCommand: servoB.status = running\r\n");
+   }
+   
+   // set global variables to 0 so we know we have new input
+   servo1UserInput = 0;
+   servo2UserInput = 0;
+}
+
 void runTasks(void) 
 { 
+   // first process the user commands
+   processUserCommand();
+ 
+   // then run the recipies based on the changes from the processUserCommand
+   // function.
    if(servoA.status  == ready) 
    {
      // get the next command and process it.
      processCommand(&servoA,firstThree(*servoA.currentCommand), lastFive(*servoA.currentCommand));
-   } else {
+   } 
+   else if(servoA.status  == running)  
+   {
      updateTaskStatus(&servoA);
    }
 
    if(servoB.status  == ready) 
    {
      processCommand(&servoB, firstThree(*servoB.currentCommand), lastFive(*servoB.currentCommand));
-   } else {
+   } 
+   else if (servoB.status  == running)
+   {
      updateTaskStatus(&servoB);
    }
-
-   // reset the 10ms interrupt flag.
-   updateTime = FALSE;
-   
 }
 
 void updateTaskStatus(struct TaskControlBlock* servo) 
@@ -510,7 +535,7 @@ void updateTaskStatus(struct TaskControlBlock* servo)
    // for a thread has run out.
    
    // We are processing a command
-   if(servo->status  == running && updateTime == TRUE) {
+   if(servo->status  == running) {
       
       //printf("\r\nprocessCommand: updateTaskStatus servo->timeLeftms %u\r\n", servo->timeLeftms);
       
@@ -557,7 +582,7 @@ void interrupt 9 OC1_isr( void )
   TC1     +=  TC1_VAL;      
   TFLG1   =   TFLG1_C1F_MASK;  
   
-  updateTime = TRUE;
+  runTasks();
 }
 #pragma pop
 
@@ -590,6 +615,7 @@ void TERMIO_PutChar(INT8 ch)
 UINT8 GetChar(void)
 { 
   // Poll for data
+  
   do
   {
     // Nothing
@@ -604,22 +630,23 @@ UINT8 GetChar(void)
 //--------------------------------------------------------------       
 void main(void)
 {
-
-// UINT8 userInput;
   
   InitializeSerialPort();
-  InitializeTimer();
+  // this function has to be before the InitializeTimer function.
   initializeServos();
+  
+  InitializeTimer();
   initializeCommands(); 
    
   // Show initial prompt
   (void)printf("Hey Babe I'm just too cool!\r\n");
-       ;
-while(1)
-{
-   runTasks();
-}
 
-   
-
+   while(1)
+   {
+      servo1UserInput = GetChar();
+      servo2UserInput = GetChar();
+    
+      (void)printf("Recieved user input %d!\r\n", servo1UserInput);
+      (void)printf("Recieved user input %d!\r\n", servo2UserInput);
+   }
 }
